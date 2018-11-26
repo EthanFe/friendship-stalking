@@ -64,8 +64,8 @@ async function getGithubDataForUser(username) {
   return json.filter(event => event.type === "PushEvent")[0]
 }
 
-async function addComment(repoID, commentContent, topic) {
-  const testUser = "Droney"
+async function addComment(repoID, commentContent, topic, username) {
+  const testUser = username || "DefaultUser"
   repoID = String(repoID)
   
   const conversation = await createOrFindBy("Conversation",
@@ -73,6 +73,7 @@ async function addComment(repoID, commentContent, topic) {
                                       {topic: topic, repo_id: repoID})
   
   const user = await createOrFindBy("User", {name: testUser})
+  console.log(user.name)
 
   console.log(conversation.id, user.id)
   console.log(repoID, commentContent, topic, testUser)
@@ -90,6 +91,8 @@ async function addComment(repoID, commentContent, topic) {
     await user.save()
     console.log("successfully created message")
   }
+
+  return message
 }
 
 async function setupSockets(game) {
@@ -110,9 +113,10 @@ async function setupSockets(game) {
     const conversations = await getConversationsWithMessages()
     socket.emit('initialLoadData', {conversations: conversations/*, socketId: socket.id*/})
 
-    socket.on('addComment', function({repoID, commentContent, topic}){
-      addComment(repoID, commentContent, topic)
-      io.emit('commentAdded', {repoID, commentContent})
+    socket.on('addComment', async function({repoID, commentContent, topic, username}){
+      const message = await addComment(repoID, commentContent, topic, username)
+      const user = await message.user
+      io.emit('commentAdded', {repoID, commentContent, username: user.name})
     });
 
     socket.on('disconnect', function(){
@@ -127,7 +131,13 @@ async function getConversationsWithMessages() {
   const conversations = await getAllConversations()
   return await Promise.all(conversations.map(async conversation => {
     const messages = await getMessagesOfConversation(conversation)
-    return {messages: messages.map(message => message.message), repoID: conversation.repo_id}
+    return {
+        messages: await Promise.all(messages.map(async message => {
+          const user = await message.user
+          return {message: message.message, sender: user.name}
+        })),
+        repoID: conversation.repo_id
+    }
   }))
 }
 
