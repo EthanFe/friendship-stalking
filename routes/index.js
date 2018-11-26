@@ -19,31 +19,7 @@ router.get('/', async function(req, res, next) {
 
 router.post('/addComment', async function (req, res) {
   let {repoID, commentContent, topic} = req.body
-  const testUser = "Droney"
-  repoID = String(repoID)
-  
-  const conversation = await createOrFindBy("Conversation",
-                                      {"repo_id": repoID},
-                                      {topic: topic, repo_id: repoID})
-  
-  const user = await createOrFindBy("User", {name: testUser})
-
-  console.log(conversation.id, user.id)
-  console.log(repoID, commentContent, topic, testUser)
-  const [error, message] = await catchAsync(store.Model('Message').create({
-    message: commentContent,
-    user_id: user.id,
-    conversation_id: conversation.id
-  }))
-  if (error !== null) {
-    console.log(error)
-  } else {
-    conversation.messages.add(message)
-    await conversation.save()
-    user.messages.add(message)
-    await user.save()
-    console.log("successfully created message")
-  }
+  addComment(repoID, commentContent, topic)
 
   const allConversationMessages = await store.Model('Message').where({conversation_id: conversation.id})
   // const allConversationMessages = await conversation.messages
@@ -88,6 +64,34 @@ async function getGithubDataForUser(username) {
   return json.filter(event => event.type === "PushEvent")[0]
 }
 
+async function addComment(repoID, commentContent, topic) {
+  const testUser = "Droney"
+  repoID = String(repoID)
+  
+  const conversation = await createOrFindBy("Conversation",
+                                      {"repo_id": repoID},
+                                      {topic: topic, repo_id: repoID})
+  
+  const user = await createOrFindBy("User", {name: testUser})
+
+  console.log(conversation.id, user.id)
+  console.log(repoID, commentContent, topic, testUser)
+  const [error, message] = await catchAsync(store.Model('Message').create({
+    message: commentContent,
+    user_id: user.id,
+    conversation_id: conversation.id
+  }))
+  if (error !== null) {
+    console.log(error)
+  } else {
+    conversation.messages.add(message)
+    await conversation.save()
+    user.messages.add(message)
+    await user.save()
+    console.log("successfully created message")
+  }
+}
+
 async function setupSockets(game) {
 
   const http = require('http').Server(express);
@@ -106,7 +110,7 @@ async function setupSockets(game) {
     const conversations = await getConversationsWithMessages()
     socket.emit('initialLoadData', {conversations: conversations/*, socketId: socket.id*/})
 
-    socket.on('addComment', function(repoID, commentContent, topic){
+    socket.on('addComment', function({repoID, commentContent, topic}){
       addComment(repoID, commentContent, topic)
       io.emit('commentAdded', {repoID, commentContent})
     });
