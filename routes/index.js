@@ -125,9 +125,69 @@ async function setupSockets(game) {
     socket.on('disconnect', function(){
       console.log('user disconnected');
     });
+
+    socket.on("authWithGithub", async ({code}) => {
+      authWithGithub(code, socket)
+    })
+
+    socket.on("requestRepoData", async () => {
+      const conversations = await getConversationsWithMessages()
+      const userData = await getGithubData()
+      socket.emit('repoData', {users: userData, conversations: conversations})
+    })
+
+    // socket.on("logout", ({accessToken}) => {
+    //   removeAuthWithGithub(accessToken)
+    // })
   });
 
   console.log("Socket is ready.")
+}
+
+// const removeAuthWithGithub = (accessToken) => {
+//   const response = await fetch(`https://github.com/authorizations/${accessToken}`, {
+//     method: 'DELETE',
+//     body: JSON.stringify({
+//       client_id: clientID,
+//       client_secret: clientSecret,
+//       code: accessCode
+//     }),
+//     headers: {
+//       'Content-Type': 'application/json',
+//       Accept:'application/json'
+//     }
+//   })
+//   console.log(response)
+// }
+
+const authWithGithub = async (accessCode, socket) => {
+  const clientID = "37ec24a03b485597e01b"
+  const clientSecret = "523d3c4117fea844bb6421c5ffd1a48dd4425658"
+  console.log("Authenticating with access code: " + accessCode)
+  const response = await fetch("https://github.com/login/oauth/access_token", {
+    method: 'POST',
+    body: JSON.stringify({
+      client_id: clientID,
+      client_secret: clientSecret,
+      code: accessCode
+    }),
+    headers: {
+      'Content-Type': 'application/json',
+      Accept:'application/json'
+    }
+  })
+  const accessToken = (await response.json()).access_token
+  const result = await fetch("https://api.github.com/user", {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept:'application/json',
+      Authorization:`Bearer ${accessToken}`
+    }
+  })
+  const basicUserData = (await result.json())
+  console.log(basicUserData)
+  socket.emit("authenticationSuccess", {accessToken, basicUserData})
 }
 
 async function getConversationsWithMessages() {
