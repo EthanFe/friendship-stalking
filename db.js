@@ -10,12 +10,16 @@ const store = new Store({
     require('./migrations/1_create_users.js'),
     require('./migrations/2_create_messages.js'),
     require('./migrations/3_create_conversations.js'),
+    require('./migrations/4_create_userlists.js'),
+    require('./migrations/5_create_userlistmemberships.js'),
     require('./migrations/seed.js'),
   ],
   models: [
     require('./models/User.js'),
     require('./models/Message.js'),
-    require('./models/Conversation.js')
+    require('./models/Conversation.js'),
+    require('./models/Userlist.js'),
+    require('./models/Userlistmembership.js')
   ]
 })
 
@@ -23,9 +27,6 @@ const startDB = (callback) => {
   store.ready(async () => {
     console.log("Store is ready.")
     callback()
-    // await store.Model('User').create({login: 'philipp', first_name: 'bob', last_name: "joe"})
-    // const user = await store.Model('User').find(1)
-    // console.log(user.name)
   })
 }
 

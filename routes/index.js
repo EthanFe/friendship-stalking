@@ -1,4 +1,7 @@
 const {store, createOrFindBy, startDB} = require('../db.js')
+const {getConversationsWithMessages,
+        getUserMembershipsOfUser,
+        getUserListsIncludingUserByName} = require('../dbfunctions.js')
 
 var express = require('express');
 var router = express.Router();
@@ -237,59 +240,11 @@ const authWithGithub = async (accessCode, socket) => {
   // dig stuff out of the db to send to users now that they're connected and logged in
   const conversations = await getConversationsWithMessages()
   const userData = await getGithubData()
-  // const userLists = await getUserListsIncludingUserByName(basicUserData.login)
+  const userLists = await getUserListsIncludingUserByName(basicUserData.login)
   socket.emit("authenticationSuccess", {loginData: {accessToken, basicUserData},
                                         reposData: {users: userData, conversations: conversations},
-                                        /*userlistsData: {}*/})
+                                        userlistsData: userLists})
 }
-
-async function getConversationsWithMessages() {
-  const conversations = await getAllConversations()
-  return await Promise.all(conversations.map(async conversation => {
-    const messages = await getMessagesOfConversation(conversation)
-    return {
-        messages: await Promise.all(messages.map(async message => {
-          const user = await message.user
-          return {message: message.message, sender: user.name}
-        })),
-        repoID: conversation.repo_id
-    }
-  }))
-}
-
-async function getAllConversations() {
-  const conversations = await store.Model('Conversation')
-  return conversations
-}
-
-const getMessagesOfConversation = async (conversation) => {
-  return await store.Model('Message').where({conversation_id: conversation.id})
-}
-
-// const getUserMembershipsOfUser = async (user) => {
-//   return await store.Model('Userlistmembership').where({user_id: user.id})
-// }
-
-// const getUsersForList = async (list) => {
-//   const memberships = await store.Model('Userlistmembership').where({userlist_id: list.id})
-//   const users = await Promise.all(memberships.map(async membership => await membership.user))
-//   return users
-// }
-
-// const getUserListsIncludingUserByName = async (username) => {
-//   const user = await createOrFindBy("User", {name: username})
-//   const memberships = await store.Model('Userlistmembership').where({user_id: user.id})
-//   const userlists = await Promise.all(memberships.map(async membership => await membership.userlist))
-//   const listUsers = await Promise.all(userlists.map(async list => await getUsersForList(list)))
-//   console.log(listUsers)
-// }
-
-// const userLists = await getUserlistsForUser(user)
-
-// const getUserlistsForUser = async (user) => {
-//   const listMemberships = await store.Model('Userlist')
-//   listMemberships.map(membership => console.log(membership, membership.user_id))
-// }
 
 module.exports = router;
 
