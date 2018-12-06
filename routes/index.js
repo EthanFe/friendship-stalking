@@ -1,7 +1,10 @@
 const {store, createOrFindBy, startDB} = require('../db.js')
 const {getConversationsWithMessages,
         getUserMembershipsOfUser,
-        getUserListsIncludingUserByName} = require('../dbfunctions.js')
+        getUserListsIncludingUserByName,
+        getUsersForListID,
+        getListWithUsers,
+        getConversationsWithMessagesForRepos} = require('../dbfunctions.js')
 
 var express = require('express');
 var router = express.Router();
@@ -29,25 +32,25 @@ router.post('/addComment', async function (req, res) {
   res.send({message: message, user: user, message: message, conversation: allConversationMessages.map(convoMessage => convoMessage.message)})
 })
 
-async function getGithubData() {
-  const users = [
-    {username: "kapham2", id: "369995"},
-    {username: "nickluong", id: "286291"},
-    {username: "gwatson86", id: "367270"},
-    {username: "spraguesy", id: "304978"},
-    // {username: "HeadyT0pper", id: "316733"},
-    {username: "jstricklin89"},
-    {username: "V10LET", id: "371896"},
-    {username: "mwilliamszoe", id: "268776"},
-    {username: "NaebIis", id: "325649"},
-    {username: "sparkbold-git", id: "42003"},
-    {username: "chelsme", id: "360601"},
-    {username: "EthanFe", id: "318688"},
-  ]
+// const defaultUsers = [
+//   {username: "kapham2", id: "369995"},
+//   {username: "nickluong", id: "286291"},
+//   {username: "gwatson86", id: "367270"},
+//   {username: "spraguesy", id: "304978"},
+//   // {username: "HeadyT0pper", id: "316733"},
+//   {username: "jstricklin89"},
+//   {username: "V10LET", id: "371896"},
+//   {username: "mwilliamszoe", id: "268776"},
+//   {username: "NaebIis", id: "325649"},
+//   {username: "sparkbold-git", id: "42003"},
+//   {username: "chelsme", id: "360601"},
+//   {username: "EthanFe", id: "318688"},
+// ]
 
-  console.log("Fetching github data")
-  const userData = await Promise.all(users.map(user => getGithubDataForUser(user.username)))
-  console.log("Finished!")
+async function getGithubData(users) {
+  console.log(`Fetching github data for ${users.length} users`)
+  const userData = await Promise.all(users.map(user => getGithubDataForUser(user.name)))
+  console.log("Finished fetching github data!")
   return userData
 }
 
@@ -78,10 +81,7 @@ async function addComment(repoID, commitURL, commentContent, topic, username, ac
                                       {topic: topic, repo_id: repoID})
   
   const user = await createOrFindBy("User", {name: testUser})
-  // console.log(user.name)
-
-  // console.log(conversation.id, user.id)
-  // console.log(repoID, commentContent, topic, testUser)
+  
   const [error, message] = await catchAsync(store.Model('Message').create({
     message: commentContent,
     user_id: user.id,
@@ -145,8 +145,8 @@ async function setupSockets(game) {
       console.log('user disconnected');
     });
 
-    socket.on("authWithGithub", async ({code}) => {
-      authWithGithub(code, socket)
+    socket.on("authWithGithub", async (data) => {
+      authWithGithub(data, socket)
     })
 
     // socket.on("requestRepoData", async () => {
@@ -156,7 +156,39 @@ async function setupSockets(game) {
     // })
 
     socket.on("createNewList", ({name, username}) => {
-      createUserList(name, username)
+      createUserList(name, username, socket)
+    })
+
+    socket.on("requestReposForList", async ({listID}) => {
+      const users = await getUsersForListID(listID)
+      const userData = await getGithubData(users)
+      const repo_ids = userData.map(user => user.data.repo.id)
+      const conversations = await getConversationsWithMessagesForRepos(repo_ids)
+      socket.emit("userDataForDisplay", {userData, conversations})
+    })
+
+    socket.on("addUserToList", async ({listID, username, accessToken}) => {
+      const usernameIsValid = await userIsValidGithubName(username, accessToken)
+      if (usernameIsValid) {
+        const user = await createOrFindBy("User", {name: username})
+        const existingMemberships = await store.Model("Userlistmembership").where({user_id: user.id, userlist_id: listID})
+        const existingMembership = await existingMemberships.length
+        if (!existingMembership) {
+          const list = await store.Model("Userlist").find(listID)
+          addUserToList(list, user)
+          io.emit("userAddedToList", {listID, username})
+        } else {
+          socket.emit("addUserToListResponse", {message: "user already present"})
+        }
+      } else {
+        socket.emit("addUserToListResponse", {message: "user not github member"})
+      }
+    })
+
+    socket.on("requestDataForUserlist", async ({listID}) => {
+      const list = await store.Model("Userlist").find(listID)
+      const listData = await getListWithUsers(list)
+      socket.emit("dataForUserlistResponse", {listData})
     })
 
     // socket.on("logout", ({accessToken}) => {
@@ -167,29 +199,44 @@ async function setupSockets(game) {
   console.log("Socket is ready.")
 }
 
-const createUserList = async (listName, username) => {
+const createUserList = async (listName, username, socket) => {
   const user = await createOrFindBy("User", {name: username})
 
   const [error, newList] = await catchAsync(store.Model("userlist").create({title: listName}))
   if (error !== null) {
     console.error(error)
   } else {
-    const [error, listMembership] = await catchAsync(store.Model("userlistmembership").create())
-    newList.userlistmemberships.add(listMembership)
-    await newList.save()
-    user.userlistmemberships.add(listMembership)
-    await user.save()
+    await addUserToList(newList, user)
+    const listData = await getListWithUsers(newList)
+    socket.emit("createdNewList", {listData})
 
-    // await user
-    // await newList
-    // await listMembership
-
-    const thisUsersMemberships = await getUserMembershipsOfUser(user)
-    console.log("made a new list")
-    console.log(thisUsersMemberships.length)
-    console.log(newList.userlistmemberships.length)
-    console.log(listMembership)
+    // const thisUsersMemberships = await getUserMembershipsOfUser(user)
+    // console.log("made a new list")
+    // console.log(thisUsersMemberships.length)
+    // console.log(newList.userlistmemberships.length)
+    // console.log(listMembership)
   }
+}
+
+const addUserToList = async (list, user) => {
+  const [error, listMembership] = await catchAsync(store.Model("userlistmembership").create())
+  list.userlistmemberships.add(listMembership)
+  await list.save()
+  user.userlistmemberships.add(listMembership)
+  await user.save()
+}
+
+const userIsValidGithubName = async (username, accessToken) => {
+  const result = await fetch(`https://api.github.com/users/${username}`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept:'application/json',
+      Authorization: `Bearer ${accessToken}`
+    }
+  })
+  const userData = (await result.json())
+  return userData.login !== undefined
 }
 
 // const removeAuthWithGithub = (accessToken) => {
@@ -208,42 +255,64 @@ const createUserList = async (listName, username) => {
 //   console.log(response)
 // }
 
-const authWithGithub = async (accessCode, socket) => {
+const authWithGithub = async (data, socket) => {
+  // this is some pretty janky code flow.
+  let accessToken = data.token || await authWithGithubUsingCode(data.code)
+  let basicUserData = await fetchUserData(accessToken)
+
+  if (basicUserData.message === "Bad credentials") {
+    accessToken = await authWithGithubUsingCode(data.code)
+    basicUserData = await fetchUserData(accessToken)
+  }
+
+  if (basicUserData.message === "Bad credentials") {
+    socket.emit("authenticationFailure")
+  } else {
+    // dig stuff out of the db to send to users now that they're connected and logged in
+    // jk. do this on list selection/display instead
+    // const conversations = await getConversationsWithMessages()
+    // const userData = await getGithubData()
+    const userLists = await getUserListsIncludingUserByName(basicUserData.login)
+    // socket.emit("authenticationSuccess", {loginData: {accessToken, basicUserData},
+    //                                       reposData: {users: userData, conversations: conversations},
+    //                                       userlistsData: userLists})
+    socket.emit("authenticationSuccess", {
+                                          loginData: {accessToken, basicUserData}, 
+                                          userlistsData: userLists
+                                        })
+  }
+}
+
+authWithGithubUsingCode = async (code) => {
   const clientID = "37ec24a03b485597e01b"
   const clientSecret = "523d3c4117fea844bb6421c5ffd1a48dd4425658"
-  console.log("Authenticating with access code: " + accessCode)
+  console.log("Authenticating with access code: " + code)
   const response = await fetch("https://github.com/login/oauth/access_token", {
     method: 'POST',
     body: JSON.stringify({
       client_id: clientID,
       client_secret: clientSecret,
-      code: accessCode
+      code: code
     }),
     headers: {
       'Content-Type': 'application/json',
       Accept:'application/json'
     }
   })
-  const accessToken = (await response.json()).access_token
+  return (await response.json()).access_token
+}
 
+fetchUserData = async (token) => {
   // get basic info on the user from github
   const result = await fetch("https://api.github.com/user", {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
       Accept:'application/json',
-      Authorization:`Bearer ${accessToken}`
+      Authorization:`Bearer ${token}`
     }
   })
-  const basicUserData = (await result.json())
-
-  // dig stuff out of the db to send to users now that they're connected and logged in
-  const conversations = await getConversationsWithMessages()
-  const userData = await getGithubData()
-  const userLists = await getUserListsIncludingUserByName(basicUserData.login)
-  socket.emit("authenticationSuccess", {loginData: {accessToken, basicUserData},
-                                        reposData: {users: userData, conversations: conversations},
-                                        userlistsData: userLists})
+  return await result.json()
 }
 
 module.exports = router;
