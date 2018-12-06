@@ -1,12 +1,13 @@
 const { catchAsync } = require('./funtimes')
 
-const Store = require('openrecord/store/postgres')
+const Store = require('openrecord/store/sqlite3')
 
 const store = new Store({
   host: 'localhost',
-  database: 'friendship-stalking',
-  user: 'friendship-stalking',
-  password: process.env.FRIENDSHIP_DATABASE_PASSWORD,
+  // database: 'friendship-stalking',
+  file: 'blabla',
+  // user: 'friendshipuser',
+  // password: process.env.FRIENDSHIP_DATABASE_PASSWORD,
   autoLoad: true,
   migrations: [
     require('./migrations/1_create_users.js'),
