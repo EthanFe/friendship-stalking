@@ -285,7 +285,7 @@ const authWithGithub = async (data, socket) => {
 
 authWithGithubUsingCode = async (code) => {
   const clientID = "37ec24a03b485597e01b"
-  const clientSecret = "523d3c4117fea844bb6421c5ffd1a48dd4425658"
+  const clientSecret = process.env.GITHUB_SECRET_ID
   console.log("Authenticating with access code: " + code)
   const response = await fetch("https://github.com/login/oauth/access_token", {
     method: 'POST',
