@@ -7,6 +7,9 @@ const {getConversationsWithMessages,
         getConversationsWithMessagesForRepos} = require('../dbfunctions.js')
 
 var express = require('express');
+const app = express()
+app.use('/', express.static('build'))
+
 var router = express.Router();
 
 const fetch = require('node-fetch');
@@ -47,22 +50,21 @@ router.post('/addComment', async function (req, res) {
 //   {username: "EthanFe", id: "318688"},
 // ]
 
-async function getGithubData(users) {
+async function getGithubData(users, accessToken) {
   console.log(`Fetching github data for ${users.length} users`)
-  const userData = await Promise.all(users.map(user => getGithubDataForUser(user.name)))
+  const userData = await Promise.all(users.map(user => getGithubDataForUser(user.name, accessToken)))
   console.log("Finished fetching github data!")
   return userData
 }
 
-async function getGithubDataForUser(username) {
-  const apiKey = "5dcc9dca17ef40c008e652a9e37abe5390ffdb93"
-
+async function getGithubDataForUser(username, accessToken) {
   let page = 1
   let event = null
   // this will break after a few pages because of github's pagination restrictions. should probably make it more resilient
   while (event === null) {
-    const response = await fetch(`https://api.github.com/users/${username}/events?page=${page}&access_token=${apiKey}`)
+    const response = await fetch(`https://api.github.com/users/${username}/events?page=${page}&access_token=${accessToken}`)
     const json = await response.json()
+    console.log(json)
     const pushEvents = json.filter(event => event.type === "PushEvent")
     if (pushEvents.length > 0)
       event = pushEvents[0]
@@ -121,11 +123,12 @@ function postCommentToGithub(commitURL, commentContent, accessToken) {
 
 async function setupSockets(game) {
 
-  const http = require('http').Server(express);
+  const http = require('http').Server(app);
   // const io = require('socket.io')(http);
 
-  const server = http.listen(3000, function(){
-    console.log('listening on *:3000');
+  const port = 3000
+  const server = http.listen(port, function(){
+    console.log(`listening on *:${port}`);
   });
   const io = require('socket.io').listen(server);
 
@@ -159,9 +162,9 @@ async function setupSockets(game) {
       createUserList(name, username, socket)
     })
 
-    socket.on("requestReposForList", async ({listID}) => {
+    socket.on("requestReposForList", async ({listID, accessToken}) => {
       const users = await getUsersForListID(listID)
-      const userData = await getGithubData(users)
+      const userData = await getGithubData(users, accessToken)
       const repo_ids = userData.map(user => user.data.repo.id)
       const conversations = await getConversationsWithMessagesForRepos(repo_ids)
       socket.emit("userDataForDisplay", {userData, conversations})
